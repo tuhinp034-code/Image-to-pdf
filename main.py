@@ -8,14 +8,14 @@ from telegram.ext import (
 )
 from PIL import Image
 
-# ── Configuration ─────────────────────────────────────────────────────────────
-TOKEN        = os.getenv("BOT_TOKEN")               # Set in your environment
-CHANNEL_ID   = "-1004351773019"             # e.g. @mychannel or -1001234567890
-CHANNEL_LINK = "https://t.me/+X2PkG878VR5iNDk9" # e.g. https://t.me/mychannel
+# ── Configuration (set these in Railway environment variables) ────────────────
+TOKEN        = os.getenv("BOT_TOKEN")
+CHANNEL_ID   = os.getenv("CHANNEL_ID")
+CHANNEL_LINK = os.getenv("CHANNEL_LINK")
 
 # ── Conversation States ───────────────────────────────────────────────────────
-WAITING_FOR_PHOTO = 1   # FIX: separate state for receiving the photo
-WAITING_FOR_NAME  = 2   # state for receiving the desired filename
+WAITING_FOR_PHOTO = 1
+WAITING_FOR_NAME  = 2
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -27,13 +27,17 @@ logger = logging.getLogger(__name__)
 
 # ── /start ────────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.clear()   # reset any previous session data
+    context.user_data.clear()
     keyboard = [
-        [InlineKeyboardButton("Join Channel", url=CHANNEL_LINK)],
+        [InlineKeyboardButton("📢 Join Updates Channel", url=CHANNEL_LINK)],
         [InlineKeyboardButton("Verify ✅", callback_data="verify")],
     ]
     await update.message.reply_text(
-        "Welcome! Please join our channel first, then click Verify to start.",
+        "👋 *Welcome!*\n\n"
+        "To use this bot, you must join our updates channel first.\n\n"
+        "1️⃣ Click *Join Updates Channel*\n"
+        "2️⃣ Click *Verify ✅* once you've joined",
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
     return ConversationHandler.END
@@ -42,38 +46,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # ── Verify callback ───────────────────────────────────────────────────────────
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()        # FIX: always acknowledge the callback immediately
+    await query.answer()
 
     user_id = query.from_user.id
 
     try:
         member = await context.bot.get_chat_member(
-            chat_id=CHANNEL_ID, user_id=user_id
+            chat_id=int(CHANNEL_ID), user_id=user_id
         )
+
         if member.status in ("member", "administrator", "creator"):
             await query.edit_message_text(
-                "✅ Verified! Please send me the image you want to convert to PDF."
+                "✅ *Verified! You're all set.*\n\n"
+                "📸 Send me any image you want to convert into a PDF.",
+                parse_mode="Markdown",
             )
-            return WAITING_FOR_PHOTO   # FIX: go to photo state, not name state
+            return WAITING_FOR_PHOTO
 
         else:
-            # FIX: answer() was already called above — use edit instead of a
-            #      second answer() call (which would be ignored or raise an error)
+            keyboard = [
+                [InlineKeyboardButton("📢 Join Updates Channel", url=CHANNEL_LINK)],
+                [InlineKeyboardButton("Verify ✅", callback_data="verify")],
+            ]
             await query.edit_message_text(
-                "❌ You haven't joined the channel yet!\n\n"
-                "Please join and then click Verify again.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Join Channel", url=CHANNEL_LINK)],
-                    [InlineKeyboardButton("Verify ✅", callback_data="verify")],
-                ]),
+                "❌ *You haven't joined the channel yet!*\n\n"
+                "Please join first, then click Verify ✅",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard),
             )
             return ConversationHandler.END
 
     except Exception as e:
-        logger.error("Membership check failed: %s", e)
+        logger.error("Membership check error: %s", e)
         await query.edit_message_text(
-            "⚠️ Could not verify membership. "
-            "Please make sure the bot is an admin in the channel and try again."
+            "⚠️ *Verification failed.*\n\n"
+            "Make sure the bot is added as an *admin* in the channel, then try again.\n"
+            "Send /start to retry.",
+            parse_mode="Markdown",
         )
         return ConversationHandler.END
 
@@ -84,24 +93,37 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     image_bytes = io.BytesIO()
     await photo_file.download_to_memory(out=image_bytes)
-    image_bytes.seek(0)         # FIX: rewind so PIL can read from the start
+    image_bytes.seek(0)
 
-    # FIX: validate the image is readable before asking for a filename
     try:
-        Image.open(image_bytes).verify()   # verify() checks integrity
-        image_bytes.seek(0)                # rewind again after verify()
+        img = Image.open(image_bytes)
+        img.verify()
+        image_bytes.seek(0)
     except Exception as e:
         logger.error("Invalid image: %s", e)
         await update.message.reply_text(
-            "⚠️ Could not read the image. Please send a valid photo and try again."
+            "⚠️ Could not read that image. Please send a valid photo."
         )
         return WAITING_FOR_PHOTO
 
     context.user_data["image_bytes"] = image_bytes
     await update.message.reply_text(
-        "✅ Image received! Now reply with the filename (e.g. my_file.pdf)."
+        "✅ *Image received!*\n\n"
+        "📝 Now send me the filename for your PDF.\n"
+        "Example: `my_document.pdf`\n\n"
+        "_(The name must end with `.pdf`)_",
+        parse_mode="Markdown",
     )
     return WAITING_FOR_NAME
+
+
+# ── Text received before photo ────────────────────────────────────────────────
+async def no_photo_yet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        "📸 Please send an *image* first, then I'll ask for the filename.",
+        parse_mode="Markdown",
+    )
+    return WAITING_FOR_PHOTO
 
 
 # ── Convert & send PDF ────────────────────────────────────────────────────────
@@ -110,11 +132,12 @@ async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if not filename.endswith(".pdf"):
         await update.message.reply_text(
-            "⚠️ The filename must end with .pdf — please try again."
+            "⚠️ The filename must end with `.pdf`\n\n"
+            "Please try again. Example: `my_photo.pdf`",
+            parse_mode="Markdown",
         )
         return WAITING_FOR_NAME
 
-    # FIX: guard against missing image data
     image_bytes = context.user_data.get("image_bytes")
     if image_bytes is None:
         await update.message.reply_text(
@@ -122,18 +145,21 @@ async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return ConversationHandler.END
 
+    await update.message.reply_text("⏳ Converting your image to PDF...")
+
     try:
-        image_bytes.seek(0)     # FIX: always rewind before opening with PIL
+        image_bytes.seek(0)
         image = Image.open(image_bytes)
 
         pdf_bytes = io.BytesIO()
         image.convert("RGB").save(pdf_bytes, format="PDF")
-        pdf_bytes.seek(0)       # FIX: rewind before sending
+        pdf_bytes.seek(0)
 
         await update.message.reply_document(
             document=pdf_bytes,
             filename=filename,
-            caption=f"Here is your PDF: {filename}",
+            caption=f"✅ Here is your PDF: *{filename}*",
+            parse_mode="Markdown",
         )
 
     except Exception as e:
@@ -144,124 +170,66 @@ async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
     finally:
-        context.user_data.clear()   # FIX: always clean up memory
+        context.user_data.clear()
 
+    await update.message.reply_text(
+        "🎉 *Done!* Send /start anytime to convert another image.",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+# ── /cancel ───────────────────────────────────────────────────────────────────
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()
+    await update.message.reply_text(
+        "❌ Cancelled. Send /start whenever you want to convert an image."
+    )
     return ConversationHandler.END
 
 
 # ── Bot setup ─────────────────────────────────────────────────────────────────
 def main() -> None:
-    # FIX: guard against missing token at startup
     if not TOKEN:
         raise RuntimeError("BOT_TOKEN environment variable is not set.")
+    if not CHANNEL_ID:
+        raise RuntimeError("CHANNEL_ID environment variable is not set.")
+    if not CHANNEL_LINK:
+        raise RuntimeError("CHANNEL_LINK environment variable is not set.")
 
     app = Application.builder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
-            # FIX: anchored pattern so "verify_something" won't accidentally match
             CallbackQueryHandler(verify, pattern="^verify$"),
         ],
         states={
             WAITING_FOR_PHOTO: [
                 MessageHandler(filters.PHOTO, handle_photo),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, no_photo_yet),
             ],
             WAITING_FOR_NAME: [
-                # FIX: allow user to re-send a photo if they changed their mind
                 MessageHandler(filters.PHOTO, handle_photo),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, convert_to_pdf),
             ],
         },
-        fallbacks=[CommandHandler("start", start)],
-        # FIX: allow the verify button to re-enter the conversation if it ended
+        fallbacks=[
+            CommandHandler("start", start),
+            CommandHandler("cancel", cancel),
+        ],
         allow_reentry=True,
     )
 
     app.add_handler(conv_handler)
+
+    logger.info("✅ Bot is running...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-
-# ── Receive photo ─────────────────────────────────────────────────────────────
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    photo_file = await update.message.photo[-1].get_file()
-    path = f"{update.message.from_user.id}.jpg"
-    await photo_file.download_to_drive(path)
-    context.user_data["photo_path"] = path
-    await update.message.reply_text(
-        "Image saved! Now send the filename you want (must end in .pdf)."
-    )
-    return WAITING_FOR_NAME     # FIX: use the correct, distinct state constant
-
-
-# ── Convert & send PDF ────────────────────────────────────────────────────────
-async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    filename = update.message.text.strip()
-
-    if not filename.endswith(".pdf"):
-        await update.message.reply_text("Please provide a filename ending in '.pdf'.")
-        return WAITING_FOR_NAME
-
-    # FIX: guard against missing photo (e.g. user skipped the photo step)
-    photo_path = context.user_data.get("photo_path")
-    if not photo_path or not os.path.exists(photo_path):
-        await update.message.reply_text(
-            "No image found. Please send your image first."
-        )
-        return WAITING_FOR_NAME
-
-    try:
-        image = Image.open(photo_path)
-        image.convert("RGB").save(filename)
-
-        with open(filename, "rb") as pdf_file:
-            await update.message.reply_document(document=pdf_file)
-
-    except Exception as e:
-        logger.error("Conversion error: %s", e)
-        await update.message.reply_text(
-            "Something went wrong during conversion. Please try again."
-        )
-        return WAITING_FOR_NAME
-
-    finally:
-        # FIX: cleanup runs even if an exception was raised
-        for f in (photo_path, filename):
-            if f and os.path.exists(f):
-                os.remove(f)
-        context.user_data.pop("photo_path", None)
-
-    return ConversationHandler.END
-
-
-# ── Bot setup ─────────────────────────────────────────────────────────────────
-def main() -> None:
-    token = "YOUR_BOT_TOKEN_HERE"   # Replace with your bot token
-    app = Application.builder().token(token).build()
-
-    conv_handler = ConversationHandler(
-        # FIX: verify callback is an entry_point so it can start the conversation
-        entry_points=[
-            CommandHandler("start", start),
-            CallbackQueryHandler(verify, pattern="^verify$"),
-        ],
-        states={
-            WAITING_FOR_PHOTO: [
-                MessageHandler(filters.PHOTO, handle_photo),
-            ],
-            WAITING_FOR_NAME: [
-                MessageHandler(filters.PHOTO, handle_photo),   # allow re-send
-                MessageHandler(filters.TEXT & ~filters.COMMAND, convert_to_pdf),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start)],
-    )
-
-    app.add_handler(conv_handler)
-    # FIX: removed the stray top-level CallbackQueryHandler(verify) — it is
+yHandler(verify) — it is
     #      now correctly handled inside the ConversationHandler above.
     app.run_polling()
 
