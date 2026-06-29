@@ -8,16 +8,13 @@ from telegram.ext import (
 )
 from PIL import Image
 
-# ── Configuration (set these in Railway environment variables) ────────────────
 TOKEN        = os.getenv("BOT_TOKEN")
 CHANNEL_ID   = os.getenv("CHANNEL_ID")
 CHANNEL_LINK = os.getenv("CHANNEL_LINK")
 
-# ── Conversation States ───────────────────────────────────────────────────────
 WAITING_FOR_PHOTO = 1
 WAITING_FOR_NAME  = 2
 
-# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -25,7 +22,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── /start ────────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     keyboard = [
@@ -43,7 +39,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-# ── Verify callback ───────────────────────────────────────────────────────────
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -80,14 +75,13 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.error("Membership check error: %s", e)
         await query.edit_message_text(
             "⚠️ *Verification failed.*\n\n"
-            "Make sure the bot is added as an *admin* in the channel, then try again.\n"
+            "Make sure the bot is added as an *admin* in the channel.\n"
             "Send /start to retry.",
             parse_mode="Markdown",
         )
         return ConversationHandler.END
 
 
-# ── Receive photo ─────────────────────────────────────────────────────────────
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     photo_file = await update.message.photo[-1].get_file()
 
@@ -117,7 +111,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return WAITING_FOR_NAME
 
 
-# ── Text received before photo ────────────────────────────────────────────────
 async def no_photo_yet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "📸 Please send an *image* first, then I'll ask for the filename.",
@@ -126,7 +119,6 @@ async def no_photo_yet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return WAITING_FOR_PHOTO
 
 
-# ── Convert & send PDF ────────────────────────────────────────────────────────
 async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     filename = update.message.text.strip()
 
@@ -179,7 +171,6 @@ async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 
-# ── /cancel ───────────────────────────────────────────────────────────────────
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     await update.message.reply_text(
@@ -188,7 +179,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-# ── Bot setup ─────────────────────────────────────────────────────────────────
 def main() -> None:
     if not TOKEN:
         raise RuntimeError("BOT_TOKEN environment variable is not set.")
@@ -222,18 +212,9 @@ def main() -> None:
     )
 
     app.add_handler(conv_handler)
-
     logger.info("✅ Bot is running...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-yHandler(verify) — it is
-    #      now correctly handled inside the ConversationHandler above.
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
-  
